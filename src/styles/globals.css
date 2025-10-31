@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  body {
+    @apply bg-navy-950 text-gray-100;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-navy-950 transition-colors duration-200;
+  }
+  
+  .btn-primary {
+    @apply btn bg-accent-500 text-navy-900 hover:bg-accent-400 focus:ring-accent-400 font-semibold shadow-lg hover:shadow-xl;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-navy-700 text-gray-100 hover:bg-navy-600 focus:ring-navy-500 border border-navy-600;
+  }
+  
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+  
+  .input {
+    @apply block w-full px-3 py-2 border border-navy-600 bg-navy-800 text-gray-100 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500 sm:text-sm transition-colors duration-200;
+  }
+  
+  .input:disabled {
+    @apply bg-navy-700 text-gray-400 cursor-not-allowed;
+  }
+  
+  .card {
+    @apply bg-navy-900 shadow-xl rounded-lg border border-navy-700 backdrop-blur-sm;
+  }
+  
+  .card-header {
+    @apply border-b border-navy-700 bg-navy-800 rounded-t-lg;
+  }
+  
+  .table-header {
+    @apply bg-navy-800 text-gray-300;
+  }
+  
+  .table-row {
+    @apply bg-navy-900 border-navy-700 hover:bg-navy-800 transition-colors duration-150;
+  }
+  
+  .progress-bar {
+    @apply bg-navy-700 rounded-full h-2;
+  }
+  
+  .progress-fill {
+    @apply bg-gradient-to-r from-accent-500 to-accent-400 h-2 rounded-full transition-all duration-300 shadow-sm;
+  }
+  
+  .status-success {
+    @apply text-green-400;
+  }
+  
+  .status-error {
+    @apply text-red-400;
+  }
+  
+  .status-processing {
+    @apply text-accent-400;
+  }
+  
+  .link-primary {
+    @apply text-accent-400 hover:text-accent-300 transition-colors duration-200;
+  }
+  
+  .badge-download {
+    @apply inline-flex items-center px-3 py-1 text-sm bg-navy-700 text-accent-400 rounded-md hover:bg-navy-600 transition-colors border border-navy-600;
+  }
+}
