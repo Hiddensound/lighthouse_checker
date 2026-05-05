@@ -225,3 +225,161 @@ export function purgeOldSessions(olderThanMs: number): number {
     .run(cutoff);
   return info.changes;
 }
+
+// --- History helpers ---------------------------------------------------------
+
+export interface UrlHistoryEntry {
+  url: string;
+  formFactor: string;
+  runCount: number;
+  lastRunAt: number;
+  latestScores: {
+    performance: number;
+    accessibility: number;
+    'best-practices': number;
+    seo: number;
+  };
+  perfTrend: number[]; // up to 10 most-recent performance scores, oldest-first
+}
+
+const SPARKLINE_WINDOW = 10;
+
+/**
+ * One row per (url, form_factor) with the latest scores, run count, last run
+ * timestamp, and the last N performance scores (oldest-first) for sparkline.
+ *
+ * Implemented as two queries to keep the SQL readable:
+ *   1) latest run per (url, form_factor) — window function on rn = 1
+ *   2) last N perf scores per (url, form_factor) — window function on rn <= N
+ * Then joined in memory. Both queries are bounded by `idx_results_url_created`.
+ */
+export function listUrlHistory(formFactor: string): UrlHistoryEntry[] {
+  const db = getDb();
+
+  const latestRows = db.prepare(`
+    WITH ranked AS (
+      SELECT
+        ar.url,
+        ar.performance,
+        ar.accessibility,
+        ar.best_practices,
+        ar.seo,
+        s.created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY ar.url ORDER BY s.created_at DESC, ar.id DESC
+        ) AS rn,
+        COUNT(*) OVER (PARTITION BY ar.url) AS run_count
+      FROM audit_results ar
+      JOIN sessions s ON ar.session_id = s.id
+      WHERE ar.error IS NULL
+        AND s.form_factor = ?
+        AND ar.performance IS NOT NULL
+    )
+    SELECT url, performance, accessibility, best_practices, seo, created_at, run_count
+    FROM ranked
+    WHERE rn = 1
+    ORDER BY created_at DESC
+  `).all(formFactor) as any[];
+
+  if (latestRows.length === 0) return [];
+
+  const trendRows = db.prepare(`
+    WITH ranked AS (
+      SELECT
+        ar.id AS id,
+        ar.url,
+        ar.performance,
+        s.created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY ar.url ORDER BY s.created_at DESC, ar.id DESC
+        ) AS rn
+      FROM audit_results ar
+      JOIN sessions s ON ar.session_id = s.id
+      WHERE ar.error IS NULL
+        AND s.form_factor = ?
+        AND ar.performance IS NOT NULL
+    )
+    SELECT url, performance, created_at, id FROM ranked
+    WHERE rn <= ?
+    ORDER BY url ASC, created_at ASC, id ASC
+  `).all(formFactor, SPARKLINE_WINDOW) as Array<{ url: string; performance: number }>;
+
+  const trendByUrl = new Map<string, number[]>();
+  for (const row of trendRows) {
+    const arr = trendByUrl.get(row.url) ?? [];
+    arr.push(row.performance);
+    trendByUrl.set(row.url, arr);
+  }
+
+  return latestRows.map(r => ({
+    url: r.url,
+    formFactor,
+    runCount: r.run_count,
+    lastRunAt: r.created_at,
+    latestScores: {
+      performance: r.performance,
+      accessibility: r.accessibility,
+      'best-practices': r.best_practices,
+      seo: r.seo
+    },
+    perfTrend: trendByUrl.get(r.url) ?? []
+  }));
+}
+
+export interface UrlRun {
+  id: number;
+  url: string;
+  formFactor: string;
+  createdAt: number;
+  scores?: {
+    performance: number;
+    accessibility: number;
+    'best-practices': number;
+    seo: number;
+  };
+  reportPaths?: { html: string; json: string };
+  opportunities?: Array<{ title: string; displayValue?: string }>;
+  error?: string;
+}
+
+/**
+ * All runs for a given (url, formFactor), newest first.
+ * Used by the detail page to render the chart + per-run table.
+ */
+export function getRunsForUrl(url: string, formFactor: string): UrlRun[] {
+  const rows = getDb().prepare(`
+    SELECT ar.id, ar.url, ar.performance, ar.accessibility,
+           ar.best_practices, ar.seo, ar.html_path, ar.json_path,
+           ar.opportunities_json, ar.error,
+           s.created_at, s.form_factor
+    FROM audit_results ar
+    JOIN sessions s ON ar.session_id = s.id
+    WHERE ar.url = ? AND s.form_factor = ?
+    ORDER BY s.created_at DESC, ar.id DESC
+  `).all(url, formFactor) as any[];
+
+  return rows.map((r): UrlRun => {
+    const base = {
+      id: r.id,
+      url: r.url,
+      formFactor: r.form_factor,
+      createdAt: r.created_at
+    };
+    if (r.error) {
+      return { ...base, error: r.error };
+    }
+    return {
+      ...base,
+      scores: {
+        performance: r.performance ?? 0,
+        accessibility: r.accessibility ?? 0,
+        'best-practices': r.best_practices ?? 0,
+        seo: r.seo ?? 0
+      },
+      reportPaths: (r.html_path || r.json_path)
+        ? { html: r.html_path, json: r.json_path }
+        : undefined,
+      opportunities: r.opportunities_json ? JSON.parse(r.opportunities_json) : []
+    };
+  });
+}

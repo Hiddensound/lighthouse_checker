@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { Upload, Plus, Play, Download, AlertCircle, CheckCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Upload, Plus, Play, Download, AlertCircle, CheckCircle, BarChart3 } from 'lucide-react';
 import { parseUrlsFromText } from '@/lib/utils';
 import { ProcessingStatus, AuditResult, LighthouseConfig } from '@/types';
 
@@ -81,7 +82,14 @@ const LighthouseDashboard: React.FC<Props> = ({ onRunAudit, processingStatus, re
     <div className="min-h-screen bg-navy-950 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="text-center mb-8">
+        <div className="relative text-center mb-8">
+          <Link
+            href="/history"
+            className="absolute right-0 top-0 inline-flex items-center px-3 py-2 text-sm bg-navy-800 text-accent-400 rounded-md hover:bg-navy-700 transition-colors border border-navy-600"
+          >
+            <BarChart3 className="w-4 h-4 mr-2" />
+            History
+          </Link>
           <h1 className="text-4xl font-bold text-gray-100 mb-4 tracking-tight">
             <span className="text-accent-400">Lighthouse</span> AI Audit Dashboard
           </h1>
