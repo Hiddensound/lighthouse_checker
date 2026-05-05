@@ -49,7 +49,10 @@ export default function HistoryDetailPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch(`/api/history/${encodedUrl}?formFactor=${formFactor}`)
+    // Next.js auto-decodes dynamic params, so `encodedUrl` here is actually
+    // the decoded URL. Re-encode it for the API call — otherwise the path
+    // contains literal slashes and Next routes it to a different (404) handler.
+    fetch(`/api/history/${encodeURIComponent(encodedUrl)}?formFactor=${formFactor}`)
       .then(r => {
         if (r.status === 401) {
           router.replace('/login');
