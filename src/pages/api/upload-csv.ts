@@ -6,6 +6,7 @@ import { parse } from 'csv-parse/sync';
 import path from 'path';
 import { UploadResponse } from '@/types';
 import { dedupeUrls, MAX_URLS_PER_AUDIT } from '@/lib/utils';
+import { requireOperator } from '@/lib/auth';
 
 // Disable body parser for file uploads
 export const config = {
@@ -35,6 +36,9 @@ function parseCSV(filePath: string): string[] {
  * Handle CSV file upload
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse<UploadResponse>) {
+  const auth = await requireOperator(req, res as any);
+  if (!auth.ok) return;
+
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }

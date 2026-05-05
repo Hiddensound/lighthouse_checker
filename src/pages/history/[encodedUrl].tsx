@@ -50,7 +50,13 @@ export default function HistoryDetailPage() {
     setLoading(true);
     setError(null);
     fetch(`/api/history/${encodedUrl}?formFactor=${formFactor}`)
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load history')))
+      .then(r => {
+        if (r.status === 401) {
+          router.replace('/login');
+          return Promise.reject(new Error('Session expired'));
+        }
+        return r.ok ? r.json() : Promise.reject(new Error('Failed to load history'));
+      })
       .then(data => {
         if (cancelled) return;
         setUrl(data.url);
