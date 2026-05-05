@@ -115,6 +115,15 @@ async function handleAuditRequest(
       });
     }
 
+    // Personal-default fallback: if the user left the API key blank in the
+    // UI, fall back to OPENAI_API_KEY env var. Intentionally silent — the
+    // frontend never surfaces "we will use the server's key", because in
+    // shared deployments OPENAI_API_KEY should be unset and each operator
+    // pastes their own.
+    if (!config.apiKey && process.env.OPENAI_API_KEY) {
+      config.apiKey = process.env.OPENAI_API_KEY;
+    }
+
     const syntacticallySafe = urls.filter(isPublicHttpUrl);
     const dnsChecks = await Promise.all(
       syntacticallySafe.map(async (u) => ({ url: u, ok: await resolvesToPublicAddress(u) }))
