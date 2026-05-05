@@ -12,11 +12,13 @@
     "postinstall": "echo 'Puppeteer configured for Vercel environment'"
   },
   "dependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/formidable": "^3.4.5",
     "@types/node": "^20.8.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.16",
+    "better-sqlite3": "^12.9.0",
     "chrome-launcher": "^1.1.0",
     "clsx": "^2.0.0",
     "csv-parse": "^5.5.2",

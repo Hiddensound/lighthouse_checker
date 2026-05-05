@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   experimental: {
-    serverComponentsExternalPackages: ['lighthouse', 'puppeteer', 'chrome-launcher']
+    serverComponentsExternalPackages: ['lighthouse', 'puppeteer', 'chrome-launcher', 'better-sqlite3']
   },
   // Allow serving static files from reports directory
   async rewrites() {
