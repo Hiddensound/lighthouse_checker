@@ -11,7 +11,6 @@ export interface AuditResult {
     accessibility: number;
     'best-practices': number;
     seo: number;
-    pwa: number | 'N/A';
   };
   opportunities?: Array<{
     title: string;
