@@ -78,6 +78,37 @@ const MIGRATIONS: Array<{ id: number; sql: string }> = [
       CREATE INDEX idx_sessions_user_created
         ON sessions(user_id, created_at DESC);
     `
+  },
+  {
+    id: 2,
+    // Relax sessions.status CHECK to allow 'cancelled'. SQLite can't ALTER a
+    // CHECK constraint in place, so recreate the table and rebuild indexes.
+    sql: `
+      CREATE TABLE sessions_new (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        status TEXT NOT NULL CHECK (status IN ('processing','completed','error','cancelled')),
+        form_factor TEXT NOT NULL,
+        current_url TEXT,
+        progress INTEGER NOT NULL DEFAULT 0,
+        total INTEGER NOT NULL,
+        insights_path TEXT,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+
+      INSERT INTO sessions_new
+        SELECT id, user_id, status, form_factor, current_url, progress, total,
+               insights_path, error, created_at, completed_at
+        FROM sessions;
+
+      DROP TABLE sessions;
+      ALTER TABLE sessions_new RENAME TO sessions;
+
+      CREATE INDEX idx_sessions_user_created
+        ON sessions(user_id, created_at DESC);
+    `
   }
 ];
 
@@ -108,7 +139,7 @@ function runMigrations(db: Database.Database): void {
 
 // --- Session helpers ---------------------------------------------------------
 
-export type SessionStatus = 'processing' | 'completed' | 'error';
+export type SessionStatus = 'processing' | 'completed' | 'error' | 'cancelled';
 
 export interface SessionRow {
   id: string;
@@ -159,6 +190,28 @@ export function failSession(id: string, errorMessage: string): void {
   getDb().prepare(`
     UPDATE sessions SET status = 'error', error = ?, completed_at = ? WHERE id = ?
   `).run(errorMessage, Date.now(), id);
+}
+
+/**
+ * Mark a still-processing session as cancelled. The audit loop polls
+ * `getSessionStatus` between URLs and exits cleanly when it sees this.
+ * Returns true if a row was actually flipped (i.e. the session existed
+ * and was still 'processing').
+ */
+export function cancelSession(id: string): boolean {
+  const info = getDb().prepare(`
+    UPDATE sessions
+    SET status = 'cancelled', current_url = NULL, completed_at = ?
+    WHERE id = ? AND status = 'processing'
+  `).run(Date.now(), id);
+  return info.changes > 0;
+}
+
+export function getSessionStatus(id: string): SessionStatus | undefined {
+  const row = getDb()
+    .prepare('SELECT status FROM sessions WHERE id = ?')
+    .get(id) as { status: SessionStatus } | undefined;
+  return row?.status;
 }
 
 // --- Result helpers ----------------------------------------------------------

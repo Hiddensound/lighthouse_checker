@@ -1,16 +1,26 @@
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Upload, Plus, Play, Download, AlertCircle, CheckCircle, BarChart3 } from 'lucide-react';
+import { Upload, Plus, Play, Download, AlertCircle, CheckCircle, BarChart3, LogOut, X } from 'lucide-react';
 import { parseUrlsFromText } from '@/lib/utils';
 import { ProcessingStatus, AuditResult, LighthouseConfig } from '@/types';
 
 interface Props {
   onRunAudit: (urls: string[], config: LighthouseConfig) => Promise<void>;
+  onCancel: () => Promise<void>;
+  onLogout: () => Promise<void>;
   processingStatus: ProcessingStatus;
   results: AuditResult[];
+  canCancel: boolean;
 }
 
-const LighthouseDashboard: React.FC<Props> = ({ onRunAudit, processingStatus, results }) => {
+const LighthouseDashboard: React.FC<Props> = ({
+  onRunAudit,
+  onCancel,
+  onLogout,
+  processingStatus,
+  results,
+  canCancel
+}) => {
   // Form state
   const [urlInput, setUrlInput] = useState('');
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -83,13 +93,23 @@ const LighthouseDashboard: React.FC<Props> = ({ onRunAudit, processingStatus, re
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="relative text-center mb-8">
-          <Link
-            href="/history"
-            className="absolute right-0 top-0 inline-flex items-center px-3 py-2 text-sm bg-navy-800 text-accent-400 rounded-md hover:bg-navy-700 transition-colors border border-navy-600"
-          >
-            <BarChart3 className="w-4 h-4 mr-2" />
-            History
-          </Link>
+          <div className="absolute right-0 top-0 flex space-x-2">
+            <Link
+              href="/history"
+              className="inline-flex items-center px-3 py-2 text-sm bg-navy-800 text-accent-400 rounded-md hover:bg-navy-700 transition-colors border border-navy-600"
+            >
+              <BarChart3 className="w-4 h-4 mr-2" />
+              History
+            </Link>
+            <button
+              onClick={onLogout}
+              className="inline-flex items-center px-3 py-2 text-sm bg-navy-800 text-gray-300 rounded-md hover:bg-navy-700 transition-colors border border-navy-600"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign out
+            </button>
+          </div>
           <h1 className="text-4xl font-bold text-gray-100 mb-4 tracking-tight">
             <span className="text-accent-400">Lighthouse</span> AI Audit Dashboard
           </h1>
@@ -282,9 +302,21 @@ const LighthouseDashboard: React.FC<Props> = ({ onRunAudit, processingStatus, re
               
               {processingStatus.status === 'processing' && (
                 <div className="space-y-4">
-                  <div className="flex items-center status-processing">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent-400 mr-3"></div>
-                    <span className="font-medium">Processing...</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center status-processing">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent-400 mr-3"></div>
+                      <span className="font-medium">Processing...</span>
+                    </div>
+                    {canCancel && (
+                      <button
+                        onClick={onCancel}
+                        className="inline-flex items-center px-2.5 py-1 text-xs bg-red-900/30 text-red-300 rounded border border-red-800 hover:bg-red-900/50 transition-colors"
+                        title="Cancel audit"
+                      >
+                        <X className="w-3 h-3 mr-1" />
+                        Cancel
+                      </button>
+                    )}
                   </div>
                   {processingStatus.currentUrl && (
                     <div className="p-3 bg-navy-800 rounded-md border border-navy-600">
@@ -336,6 +368,13 @@ const LighthouseDashboard: React.FC<Props> = ({ onRunAudit, processingStatus, re
                 <div className="flex items-center status-error bg-red-900/30 border border-red-800 rounded-md p-3">
                   <AlertCircle className="w-5 h-5 mr-3 flex-shrink-0" />
                   <span className="text-sm">Error: {processingStatus.error}</span>
+                </div>
+              )}
+
+              {processingStatus.status === 'cancelled' && (
+                <div className="flex items-center text-gray-300 bg-navy-800 border border-navy-600 rounded-md p-3">
+                  <X className="w-5 h-5 mr-3 flex-shrink-0" />
+                  <span className="text-sm">Audit cancelled. Partial results below.</span>
                 </div>
               )}
             </div>

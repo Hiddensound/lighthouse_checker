@@ -25,7 +25,7 @@ export interface AuditResult {
 }
 
 export interface ProcessingStatus {
-  status: 'idle' | 'processing' | 'completed' | 'error';
+  status: 'idle' | 'processing' | 'completed' | 'error' | 'cancelled';
   currentUrl?: string;
   progress?: number;
   totalUrls?: number;

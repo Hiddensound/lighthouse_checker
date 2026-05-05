@@ -14,8 +14,11 @@ import {
   updateSessionProgress,
   completeSession,
   failSession,
-  purgeOldSessions
+  purgeOldSessions,
+  getSessionStatus
 } from '@/lib/db';
+import { requireOperator } from '@/lib/auth';
+import { checkAuditRate } from '@/lib/rateLimit';
 
 function generateSessionId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -56,8 +59,13 @@ async function resolvesToPublicAddress(url: string): Promise<boolean> {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Auth: every method requires a valid operator cookie. Closes the original
+  // critical issue (no auth → anonymous Lighthouse-as-a-service).
+  const auth = await requireOperator(req, res);
+  if (!auth.ok) return;
+
   if (req.method === 'POST') {
-    return await handleAuditRequest(req, res);
+    return await handleAuditRequest(req, res, auth.cookieId);
   } else if (req.method === 'GET') {
     return await handleStatusRequest(req, res);
   } else {
@@ -65,7 +73,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 }
 
-async function handleAuditRequest(req: NextApiRequest, res: NextApiResponse) {
+async function handleAuditRequest(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  cookieId: string
+) {
   try {
     const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
     if (isServerless) {
@@ -75,6 +87,20 @@ async function handleAuditRequest(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
+    // Per-cookie rate limit. Even though only authenticated operators reach
+    // this code, this guards against accidental loops or runaway scripts.
+    const rl = checkAuditRate(cookieId);
+    if (!rl.ok) {
+      res.setHeader('Retry-After', String(rl.retryAfterSeconds));
+      return res.status(429).json({
+        error: `Rate limit exceeded. Try again in ${rl.retryAfterSeconds}s.`,
+        retryAfterSeconds: rl.retryAfterSeconds
+      });
+    }
+
+    // SECURITY: req.body carries an OpenAI API key when the user opts in to
+    // AI insights. Never log req.body, never persist config.apiKey, and never
+    // include it in error responses.
     const { urls, config }: { urls: string[], config: LighthouseConfig } = req.body;
 
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
@@ -160,8 +186,16 @@ async function processAuditAsync(
     await fs.mkdir(reportsDir, { recursive: true });
 
     const results: AuditResult[] = [];
+    let cancelled = false;
 
     for (let i = 0; i < urls.length; i++) {
+      // Cooperative cancellation — checked once per URL boundary so we don't
+      // waste minutes finishing audits the user already abandoned.
+      if (getSessionStatus(sessionId) === 'cancelled') {
+        cancelled = true;
+        break;
+      }
+
       const url = urls[i];
       updateSessionProgress(sessionId, url, i);
 
@@ -190,6 +224,12 @@ async function processAuditAsync(
 
       insertResult(sessionId, result);
       results.push(result);
+    }
+
+    if (cancelled) {
+      // Status was already flipped to 'cancelled' by the cancel endpoint;
+      // nothing else to do — leave partial results in place for the user.
+      return;
     }
 
     // Generate AI insights if API key is provided.

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { ArrowLeft, BarChart3 } from 'lucide-react';
 import Sparkline from '@/components/Sparkline';
 
@@ -39,6 +40,7 @@ function relativeTime(ts: number): string {
 }
 
 export default function HistoryPage() {
+  const router = useRouter();
   const [formFactor, setFormFactor] = useState<FormFactor>('desktop');
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +51,13 @@ export default function HistoryPage() {
     setLoading(true);
     setError(null);
     fetch(`/api/history?formFactor=${formFactor}`)
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load history')))
+      .then(r => {
+        if (r.status === 401) {
+          router.replace('/login');
+          return Promise.reject(new Error('Session expired'));
+        }
+        return r.ok ? r.json() : Promise.reject(new Error('Failed to load history'));
+      })
       .then(data => {
         if (!cancelled) setEntries(data.entries);
       })
@@ -60,7 +68,7 @@ export default function HistoryPage() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [formFactor]);
+  }, [formFactor, router]);
 
   return (
     <>
