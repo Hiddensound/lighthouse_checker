@@ -23,6 +23,13 @@ reports/
 public/reports/
 tmp/
 
+# SQLite database (sessions + history)
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
 # IDE
 .vscode/
 .idea/
