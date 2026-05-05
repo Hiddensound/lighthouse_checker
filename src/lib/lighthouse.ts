@@ -1,4 +1,3 @@
-import puppeteer from 'puppeteer';
 import lighthouse from 'lighthouse';
 import * as chromeLauncher from 'chrome-launcher';
 import fs from 'fs/promises';
@@ -37,67 +36,29 @@ export class LighthouseService {
 
     onProgress?.(` Processing ${config.formFactor} audit for: ${url}`);
 
-    let chrome: any = null;
-    let browser: any = null;
+    let chrome: chromeLauncher.LaunchedChrome | null = null;
 
     try {
-      // Launch Chrome with Vercel-compatible flags
+      // Launch Chrome. We deliberately avoid `--single-process` and
+      // `--no-zygote` because that combination is famously unstable on heavy
+      // pages and causes the DevTools WebSocket to drop mid-audit (1006 / ECONNRESET).
+      // Lighthouse drives Chrome directly through the port — no separate
+      // Puppeteer connection needed; the viewport, throttling, and bypass-token
+      // header are all configured in `getLighthouseConfig` below.
       chrome = await chromeLauncher.launch({
         chromeFlags: [
-          '--headless',
+          '--headless=new',
           '--disable-gpu',
           '--no-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-setuid-sandbox',
           '--no-first-run',
-          '--no-zygote',
-          '--single-process',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
           '--disable-renderer-backgrounding'
         ],
-        // Use system Chrome on Vercel
         chromePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
       });
 
-      // Connect Puppeteer to Chrome
-      browser = await puppeteer.connect({
-        browserURL: `http://localhost:${chrome.port}`
-      });
-
-      const page = await browser.newPage();
-      
-      // Set viewport based on form factor
-      if (config.formFactor === 'mobile') {
-        await page.setViewport({ width: 375, height: 812, isMobile: true });
-      } else {
-        await page.setViewport({ width: 1350, height: 940 });
-      }
-
-      // Set headers if bypass token is provided
-      if (config.bypassToken) {
-        await page.setExtraHTTPHeaders({
-          'x-vercel-protection-bypass': config.bypassToken
-        });
-      }
-
-      // Load page with robust error handling
-      onProgress?.(`Loading page: ${url}`);
-      try {
-        await page.goto(url, { 
-          waitUntil: 'domcontentloaded',
-          timeout: 45000 
-        });
-        
-        // Wait for dynamic content
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        onProgress?.(`Successfully loaded: ${url}`);
-      } catch (loadError) {
-        const errorMessage = loadError instanceof Error ? loadError.message : String(loadError);
-        onProgress?.(`Page load had issues, continuing with Lighthouse: ${errorMessage}`);
-      }
-
-      // Configure Lighthouse based on form factor
       const lighthouseConfig = this.getLighthouseConfig(config, chrome.port);
       
       onProgress?.(`Running Lighthouse ${config.formFactor} audit...`);
@@ -164,7 +125,6 @@ export class LighthouseService {
         error: errorMessage
       };
     } finally {
-      if (browser) await browser.disconnect();
       if (chrome) await chrome.kill();
     }
   }
