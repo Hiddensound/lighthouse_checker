@@ -109,15 +109,12 @@ export class LighthouseService {
       
       const { lhr, report } = result;
 
-      // Calculate scores
+      // Calculate scores (PWA category was removed in Lighthouse 12+)
       const scores = {
         performance: Math.round((lhr.categories.performance?.score || 0) * 100),
         accessibility: Math.round((lhr.categories.accessibility?.score || 0) * 100),
         'best-practices': Math.round((lhr.categories['best-practices']?.score || 0) * 100),
-        seo: Math.round((lhr.categories.seo?.score || 0) * 100),
-        pwa: lhr.categories.pwa?.score !== undefined && lhr.categories.pwa?.score !== null 
-          ? Math.round(lhr.categories.pwa.score * 100) 
-          : 'N/A' as const
+        seo: Math.round((lhr.categories.seo?.score || 0) * 100)
       };
 
       // Save reports
@@ -281,7 +278,7 @@ Top Opportunities: ${r.opportunities?.slice(0, 3).map(o => `- ${o.title} (${o.di
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: 'You are a web performance expert.' },
           { role: 'user', content: prompt }
@@ -294,48 +291,5 @@ Top Opportunities: ${r.opportunities?.slice(0, 3).map(o => `- ${o.title} (${o.di
       console.error('AI insight generation failed:', error);
       return 'Error generating AI insights';
     }
-  }
-
-  /**
-   * Run audits on multiple URLs with progress tracking
-   */
-  async auditUrls(
-    urls: string[], 
-    config: LighthouseConfig,
-    reportsDir: string,
-    onProgress?: (current: string, completed: number, total: number) => void
-  ): Promise<AuditResult[]> {
-    // Ensure reports directory exists
-    await fs.mkdir(reportsDir, { recursive: true });
-
-    const results: AuditResult[] = [];
-    
-    for (let i = 0; i < urls.length; i++) {
-      const url = urls[i];
-      onProgress?.(url, i, urls.length);
-      
-      const result = await this.auditUrl(
-        url, 
-        config, 
-        reportsDir,
-        (message) => console.log(message)
-      );
-      
-      results.push(result);
-    }
-
-    // Generate AI insights if API key is available
-    if (this.openai) {
-      try {
-        const insights = await this.generateAIInsights(results, config.formFactor);
-        const insightsPath = path.join(reportsDir, `lighthouse-ai-insights-${config.formFactor}-${generateTimestamp()}.txt`);
-        await fs.writeFile(insightsPath, insights);
-        console.log(`AI insights saved to: ${insightsPath}`);
-      } catch (error) {
-        console.error('Failed to generate AI insights:', error);
-      }
-    }
-
-    return results;
   }
 }

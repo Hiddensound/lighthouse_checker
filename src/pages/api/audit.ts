@@ -1,7 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import path from 'path';
+import fs from 'fs/promises';
+import dns from 'dns/promises';
+import net from 'net';
 import { LighthouseService } from '@/lib/lighthouse';
 import { LighthouseConfig, AuditResult } from '@/types';
+import { isPublicHttpUrl, dedupeUrls, MAX_URLS_PER_AUDIT } from '@/lib/utils';
 
 // Store for tracking audit progress (in production, use Redis or database)
 const auditSessions = new Map<string, {
@@ -19,6 +23,40 @@ const auditSessions = new Map<string, {
  */
 function generateSessionId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+/**
+ * Reject IPs in private/loopback/link-local ranges. Defends against DNS-based SSRF
+ * where a public hostname resolves to an internal address.
+ */
+function isPrivateAddress(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a >= 224) return true;
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const v = ip.toLowerCase();
+    if (v === '::1' || v === '::') return true;
+    if (v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80')) return true;
+    return false;
+  }
+  return true; // unknown family — fail closed
+}
+
+async function resolvesToPublicAddress(url: string): Promise<boolean> {
+  try {
+    const host = new URL(url).hostname;
+    const records = await dns.lookup(host, { all: true });
+    if (records.length === 0) return false;
+    return records.every(r => !isPrivateAddress(r.address));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -59,18 +97,26 @@ async function handleAuditRequest(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ error: 'Configuration with formFactor is required' });
     }
 
-    // Validate URLs
-    const validUrls = urls.filter(url => {
-      try {
-        new URL(url);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+    // Cap input size so a single request can't queue thousands of audits
+    if (urls.length > MAX_URLS_PER_AUDIT) {
+      return res.status(400).json({
+        error: `Too many URLs. Maximum is ${MAX_URLS_PER_AUDIT} per request.`
+      });
+    }
+
+    // Hostname-level SSRF check + http(s) protocol check
+    const syntacticallySafe = urls.filter(isPublicHttpUrl);
+
+    // DNS-level SSRF check — reject hostnames that resolve to private ranges
+    const dnsChecks = await Promise.all(
+      syntacticallySafe.map(async (u) => ({ url: u, ok: await resolvesToPublicAddress(u) }))
+    );
+    const validUrls = dedupeUrls(dnsChecks.filter(r => r.ok).map(r => r.url));
 
     if (validUrls.length === 0) {
-      return res.status(400).json({ error: 'No valid URLs provided' });
+      return res.status(400).json({
+        error: 'No valid public URLs provided. Private, loopback, and link-local addresses are not allowed.'
+      });
     }
 
     // Generate session ID
@@ -132,7 +178,8 @@ async function processAuditAsync(
   try {
     const lighthouseService = new LighthouseService(config.apiKey);
     const reportsDir = path.join(process.cwd(), 'public', 'reports');
-    
+    await fs.mkdir(reportsDir, { recursive: true });
+
     // Process individual URLs and update progress
     const results: AuditResult[] = [];
     
@@ -223,13 +270,22 @@ async function processAuditAsync(
   }
 }
 
-// Clean up old sessions periodically (in production, use a proper job queue)
-setInterval(() => {
-  const cutoff = Date.now() - (24 * 60 * 60 * 1000); // 24 hours ago
-  Array.from(auditSessions.entries()).forEach(([sessionId, session]) => {
-    const sessionTime = parseInt(sessionId, 36);
-    if (sessionTime < cutoff) {
-      auditSessions.delete(sessionId);
-    }
-  });
-}, 60 * 60 * 1000); // Clean up every hour
+// Clean up old sessions periodically. Guarded against duplicate registration on
+// Next.js hot-reload, which otherwise leaks a new interval per file edit.
+declare global {
+  // eslint-disable-next-line no-var
+  var __auditCleanupStarted: boolean | undefined;
+}
+
+if (!global.__auditCleanupStarted) {
+  global.__auditCleanupStarted = true;
+  setInterval(() => {
+    const cutoff = Date.now() - (24 * 60 * 60 * 1000); // 24 hours ago
+    Array.from(auditSessions.entries()).forEach(([sessionId]) => {
+      const sessionTime = parseInt(sessionId, 36);
+      if (sessionTime < cutoff) {
+        auditSessions.delete(sessionId);
+      }
+    });
+  }, 60 * 60 * 1000);
+}
